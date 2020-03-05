@@ -203,12 +203,15 @@ class OffensiveReflexAgent(ReflexAgent):
     # Compute proximity to nearest ghost
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     nearestGhost = min([self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False])
-    features['nearestGhost'] = nearestGhost
+    if nearestGhost <= 3:
+      features['nearestGhost'] = 0
+    else:
+      features['nearestGhost'] = nearestGhost
 
     return features
 
   def getWeights(self, gameState, action):
-    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': }
+    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': -100}
 
   def getReward(self, gameState, action, successorState):
     # see if it eats some food
