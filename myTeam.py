@@ -10,7 +10,7 @@
 # (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
 # Student side autograding was added by Brad Miller, Nick Hay, and
 # Pieter Abbeel (pabbeel@cs.berkeley.edu).
-
+from typing import List, Any
 
 from captureAgents import CaptureAgent
 import distanceCalculator
@@ -114,22 +114,19 @@ class ReflexAgent(CaptureAgent):
     if self.getTeam(gameState)[0] % 2 == 0:
       w = gameState.getWalls().width // 2
       locations = [(x, y) for (x, y) in gameState.getWalls().asList(False) if x == w]
-      self.debugDraw(locations, [1,0,0])
+      #self.debugDraw(locations, [1,0,0])
     else:
       w = gameState.getWalls().width // 2
       locations = [(x, y) for (x, y) in gameState.getWalls().asList(False) if x == w]
-      self.debugDraw(locations, [0,0,1])
+      #self.debugDraw(locations, [0,0,1])
     return locations
 
 
   def getValue(self, gameState, action, depth):
 
-
     successorState = self.getSuccessor(gameState, action)
 
-    # don't decrement depth if there are only two actions (one being undoing the one you just did)
-    if (successorState.getLegalActions(self.index) > 2):
-      depth -= 1
+    depth -= 1;
 
     if depth <= 0:
       return self.evaluate(gameState, action)
@@ -139,6 +136,24 @@ class ReflexAgent(CaptureAgent):
     reward = self.getReward(gameState, action, successorState)
 
     return reward + 0.9 * max(values)
+
+  # see if there is only one path to go down
+  def getPath(self, gameState, action, length):
+    newActions = [a for a in gameState.getLegalActions if a != 'Stop' and a != self.invertAction(action)]
+    if len(newActions) <= 1:
+      length += 1
+
+  def invertAction(action):
+    if action == 'North':
+      return 'South'
+    elif action == 'South':
+      return 'North'
+    elif action == 'East':
+      return 'West'
+    elif action == 'West':
+      return 'East'
+    else:
+      return 'Stop'
 
   def getSuccessor(self, gameState, action):
     """
@@ -204,14 +219,14 @@ class OffensiveReflexAgent(ReflexAgent):
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     nearestGhost = min([self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False])
     if nearestGhost <= 3:
-      features['nearestGhost'] = 0
+      features['nearestGhost'] = 100
     else:
-      features['nearestGhost'] = nearestGhost
+      features['nearestGhost'] = 100 / nearestGhost
 
     return features
 
   def getWeights(self, gameState, action):
-    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': -100}
+    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': 100}
 
   def getReward(self, gameState, action, successorState):
     # see if it eats some food
@@ -253,6 +268,9 @@ class DefensiveReflexAgent(ReflexAgent):
     features['numInvaders'] = len(invaders)
     if len(invaders) > 0:
       dists = [self.getMazeDistance(myPos, a.getPosition()) for a in invaders]
+      features['invaderDistance'] = min(dists)
+    else: # if there are no invaders, go to the border of your side
+      dists = [self.getMazeDistance(myPos, pos) for pos in self.getHomeLocations(gameState)]
       features['invaderDistance'] = min(dists)
 
     if action == Directions.STOP: features['stop'] = 1
