@@ -74,6 +74,7 @@ class ReflexAgent(CaptureAgent):
     CaptureAgent.registerInitialState in captureAgents.py.
     '''
     CaptureAgent.registerInitialState(self, gameState)
+    self.start = gameState.getAgentPosition(self.index)
 
     '''
     Your initialization code goes here, if you need any.
@@ -92,6 +93,8 @@ class ReflexAgent(CaptureAgent):
 
     maxValue = max(values)
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
+
+    print(self.index, maxValue)
 
     foodLeft = len(self.getFood(gameState).asList())
 
@@ -121,7 +124,6 @@ class ReflexAgent(CaptureAgent):
       #self.debugDraw(locations, [0,0,1])
     return locations
 
-
   def getValue(self, gameState, action, depth):
 
     successorState = self.getSuccessor(gameState, action)
@@ -135,7 +137,7 @@ class ReflexAgent(CaptureAgent):
 
     reward = self.getReward(gameState, action, successorState)
 
-    return reward + 0.9 * max(values)
+    return reward + 0.8 * max(values)
 
   # see if there is only one path to go down
   def getPath(self, gameState, action, length):
@@ -216,24 +218,36 @@ class OffensiveReflexAgent(ReflexAgent):
       features['distanceToFood'] = minDistance
 
     # Compute proximity to nearest ghost
-    enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
-    nearestGhost = min([self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False])
-    if nearestGhost <= 3:
-      features['nearestGhost'] = 100
+    if (gameState.getAgentState(self.index).isPacman == True):
+      enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
+      nearestGhost = min([self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False]) + 1
+      if nearestGhost <= 7:
+        features['nearestGhost'] = 100 / nearestGhost
+      elif nearestGhost <= 1:
+        features['nearestGhost'] = 100
     else:
-      features['nearestGhost'] = 100 / nearestGhost
+      features['nearestGhost'] = 0
 
     return features
 
   def getWeights(self, gameState, action):
-    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': 100}
+    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': -7}
+
+  # TODO make it so the offensive agent actually eats food
 
   def getReward(self, gameState, action, successorState):
-    # see if it eats some food
-    foodDifference = len(self.getFood(successorState).asList()) - len(self.getFood(gameState).asList())
-    # obtain a power pellet
+    # see if it eats food
+    reward = len(self.getFood(successorState).asList()) - len(self.getFood(gameState).asList())
 
-    return foodDifference
+    # TODO register obtaining a power pellet
+
+    # see if we get eaten
+    if successorState.getAgentPosition(self.index) == self.start and gameState.getAgentPosition(self.index) != self.start:
+      reward -= 5
+
+    reward *= 500
+
+    return reward
 
 class DefensiveReflexAgent(ReflexAgent):
   """
@@ -279,10 +293,16 @@ class DefensiveReflexAgent(ReflexAgent):
 
     # Calculate enemy's nearest distance to food
 
+    # see if the enemy is trapped
+    if self.isTrapped(gameState):
+      features['trapped'] = 10000000
+    else:
+      features['trapped'] = 0
+
     return features
 
   def getWeights(self, gameState, action):
-    return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2}
+    return {'numInvaders': -1000, 'onDefense': 100, 'invaderDistance': -10, 'stop': -100, 'reverse': -2, 'trapped': 100}
 
   def getReward(self, gameState, action, successorState):
     # see if there is one fewer enemy
@@ -290,4 +310,21 @@ class DefensiveReflexAgent(ReflexAgent):
     oldEnemies = [gameState.getAgentState(i) for i in self.getOpponents(gameState)]
 
     return len(oldEnemies) - len(newEnemies)
+
+  def isTrapped(self, gameState):
+    myPos = gameState.getAgentState(self.index).getPosition()
+    enemies = [a for a in self.getOpponents(gameState) if gameState.getAgentState(a).isPacman]
+    if len(enemies) != 0:
+      closestEnemyDistance = min([self.getMazeDistance(myPos, gameState.getAgentState(a).getPosition()) for a in enemies])
+
+      closestEnemy = random.choice([a for a in enemies if self.getMazeDistance(myPos, gameState.getAgentState(a).getPosition()) == closestEnemyDistance])
+
+      enemyActions = [action for action in gameState.getLegalActions(closestEnemy) if action != 'Stop']
+
+      if len(enemyActions) == 1:
+        enemyPosition = gameState.getAgentState(closestEnemy).getPosition()
+        if (enemyPosition[0] == myPos[0] and (enemyPosition[1] == myPos[1] + 1 or enemyPosition[1] == myPos[1] - 1)) or (enemyPosition[1] == myPos[1] and enemyPosition[0] == myPos[0] + 1 or enemyPosition[0] == myPos[0] - 1):
+          return True
+    return False;
+
 
