@@ -75,6 +75,9 @@ class ReflexAgent(CaptureAgent):
     '''
     CaptureAgent.registerInitialState(self, gameState)
     self.start = gameState.getAgentPosition(self.index)
+    self.numFood = len(self.getFood(gameState).asList())
+    self.hasFood = False
+    self.offensiveIndex = self.getTeam(gameState)[0]
 
     '''
     Your initialization code goes here, if you need any.
@@ -84,17 +87,25 @@ class ReflexAgent(CaptureAgent):
     """
     Picks among the actions with the highest Q(s,a).
     """
+    if len(self.getFood(gameState).asList()) < self.numFood:
+      if gameState.getAgentState(self.offensiveIndex).isPacman == True:
+        self.hasFood = True
+      else:
+        self.hasFood = False
+        self.numFood = len(self.getFood(gameState).asList())
+
     actions = gameState.getLegalActions(self.index)
 
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
-    values = [self.getValue(gameState, a, 2) for a in actions]
+    values = [self.getValue(gameState, a, self.index, 2) for a in actions]
     # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
 
     maxValue = max(values)
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
-    print(self.index, maxValue)
+    # if self.index == 1:
+    #   print(maxValue)
 
     foodLeft = len(self.getFood(gameState).asList())
 
@@ -124,20 +135,35 @@ class ReflexAgent(CaptureAgent):
       #self.debugDraw(locations, [0,0,1])
     return locations
 
-  def getValue(self, gameState, action, depth):
+  def getValue(self, gameState, action, index, depth):
 
-    successorState = self.getSuccessor(gameState, action)
-
-    depth -= 1;
+    if index == self.index:
+      depth -= 1;
 
     if depth <= 0:
       return self.evaluate(gameState, action)
 
-    values = [self.getValue(successorState, action, depth) for action in successorState.getLegalActions(self.index)]
+    agents = [a for a in self.getOpponents(gameState) if self.getMazeDistance(gameState.getAgentPosition(self.index), gameState.getAgentPosition(a)) < 10]
+
+    agents.append(self.index)
+
+    currentIndex = 0
+
+    for i, agent in enumerate(agents):
+      if agent == index:
+        currentIndex = i
+
+    nextIndex = agents[(currentIndex + 1) % len(agents)]
+    successorState = gameState.generateSuccessor(index, action)
+
+    values = [self.getValue(successorState, action, nextIndex, depth) for action in successorState.getLegalActions(nextIndex)]
 
     reward = self.getReward(gameState, action, successorState)
 
-    return reward + 0.8 * max(values)
+    if index == self.index:
+      return reward + 0.8 * max(values)
+    else:
+      return min(values)
 
   # see if there is only one path to go down
   def getPath(self, gameState, action, length):
@@ -203,6 +229,7 @@ class OffensiveReflexAgent(ReflexAgent):
   we give you to get an idea of what an offensive agent might look like,
   but it is by no means the best or only way to build an offensive agent.
   """
+
   def getFeatures(self, gameState, action):
     features = util.Counter()
     successor = self.getSuccessor(gameState, action)
@@ -220,32 +247,61 @@ class OffensiveReflexAgent(ReflexAgent):
     # Compute proximity to nearest ghost
     if (gameState.getAgentState(self.index).isPacman == True):
       enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
-      nearestGhost = min([self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False]) + 1
-      if nearestGhost <= 7:
-        features['nearestGhost'] = 100 / nearestGhost
-      elif nearestGhost <= 1:
-        features['nearestGhost'] = 100
+      nearestGhosts = [self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False and a.scaredTimer > 0]
+      if len(nearestGhosts) != 0:
+        nearestGhost = min(nearestGhosts)
+        if nearestGhost <= 1:
+          features['nearestGhost'] = 200
+        elif nearestGhost <= 4:
+          features['nearestGhost'] = 250 / nearestGhost
+        else:
+          features['nearestGhost'] = 0
+      else:
+          features['nearestGhost'] = 0
+          features['distanceToFood'] *= 2 # focus more on food if there are no ghosts
+
+    capsules = self.getCapsules(gameState)
+    if len(capsules) != 0:
+      features['nearestCapsule'] = min([self.getMazeDistance(myPos, capsule) for capsule in capsules])
     else:
-      features['nearestGhost'] = 0
+      features['nearestCapsule'] = 0
+
+    features['distanceToHome'] = min([self.getMazeDistance(myPos, x) for x in self.getHomeLocations(gameState)])
 
     return features
 
   def getWeights(self, gameState, action):
-    return {'successorScore': 100, 'distanceToFood': -1, 'nearestGhost': -7}
+    weights = {'successorScore': 50, 'distanceToFood': -1, 'nearestGhost': 10}
+    if len(self.getCapsules(gameState)) != 0:
+      weights['nearestCapsule'] = -1
+    else:
+      weights['nearestCapsule'] = 0
+    if (self.hasFood):
+      weights['distanceToHome'] = -4
+      weights['nearestGhost'] = 20
+    else:
+      weights['distanceToHome'] = 0
 
-  # TODO make it so the offensive agent actually eats food
+    return weights
 
   def getReward(self, gameState, action, successorState):
     # see if it eats food
-    reward = len(self.getFood(successorState).asList()) - len(self.getFood(gameState).asList())
 
-    # TODO register obtaining a power pellet
+    reward = 3*(len(self.getFood(gameState).asList()) - len(self.getFood(successorState).asList()))
+
+    if len(self.getCapsules(successorState)) < len(self.getCapsules(gameState)):
+      reward += 2
 
     # see if we get eaten
-    if successorState.getAgentPosition(self.index) == self.start and gameState.getAgentPosition(self.index) != self.start:
+    if successorState.getAgentPosition(self.index) == self.start:
       reward -= 5
 
-    reward *= 500
+    # get a reward for returning home with food
+    if self.hasFood and gameState.getAgentState(self.index).isPacman == True:
+      if successorState.getAgentState(self.index).isPacman == False:
+        reward += 1
+
+    reward *= 50
 
     return reward
 
