@@ -240,6 +240,10 @@ class OffensiveReflexAgent(ReflexAgent):
 
     myPos = successor.getAgentState(self.index).getPosition()
 
+    distanceToHome = min([self.getMazeDistance(myPos, x) for x in self.getHomeLocations(gameState)])
+
+    features['distanceToHome'] = distanceToHome
+
     # Compute distance to the nearest food
     if len(foodList) > 0: # This should always be True,  but better safe than sorry
       minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
@@ -256,6 +260,9 @@ class OffensiveReflexAgent(ReflexAgent):
         features['nearestGhost'] = nearestGhost
       else:
         features['nearestGhost'] = 0
+      # ignore the ghost if you can get to home faster than a ghost can get to you
+      if distanceToHome < nearestGhost:
+        features['nearestGhost'] = 0
     else:
         features['nearestGhost'] = 0
         features['distanceToFood'] *= 2 # focus more on food if there are no ghosts
@@ -267,7 +274,6 @@ class OffensiveReflexAgent(ReflexAgent):
     else:
       features['nearestCapsule'] = 0
 
-    features['distanceToHome'] = min([self.getMazeDistance(myPos, x) for x in self.getHomeLocations(gameState)])
 
     return features
 
@@ -289,6 +295,10 @@ class OffensiveReflexAgent(ReflexAgent):
     else:
       weights['distanceToHome'] = 0
 
+    # if you are trapped, do not pay attention to nearby ghosts
+    if self.isTrapped(gameState):
+      weights['nearestGhost'] = 0
+
     # if you are far away from home, focus more on gaining more food
     distanceToHome = min([self.getMazeDistance(gameState.getAgentState(self.index).getPosition(), x) for x in self.getHomeLocations(gameState)])
     if distanceToHome > 5 and self.hasFood:
@@ -301,6 +311,7 @@ class OffensiveReflexAgent(ReflexAgent):
     # see if it eats food
     reward = 3*(len(self.getFood(gameState).asList()) - len(self.getFood(successorState).asList()))
 
+    # if it gets a capsule
     if len(self.getCapsules(successorState)) < len(self.getCapsules(gameState)):
       reward += 2
 
@@ -316,12 +327,21 @@ class OffensiveReflexAgent(ReflexAgent):
       if successorState.getAgentState(self.index).isPacman == False:
         reward += 1
 
-    # if you are trapped
-    if self.isTrapped(successorState):
+    # if you are trapped by a ghost
+    willBeTrapped = self.isTrapped(successorState)
+    if willBeTrapped:
       if self.hasFood:
-        reward -= 5
+        reward -= 3
       else:
         reward -= 1
+
+    # if you are no longer trapped
+    if self.isTrapped(gameState) and willBeTrapped == False:
+      reward += 2
+
+    # try to avoid actions that limit your action to one action
+    if len([action for action in successorState.getLegalActions(self.index) if action != 'Stop']) <= 1:
+      reward -= 2
 
     reward *= 50
 
@@ -336,11 +356,11 @@ class OffensiveReflexAgent(ReflexAgent):
       closestEnemyIndex = random.choice([a for a in enemies if self.getMazeDistance(myPos, gameState.getAgentState(a).getPosition()) == closestEnemyDistance])
       closestEnemy = gameState.getAgentState(closestEnemyIndex).getPosition()
 
-      if len([action for action in gameState.getLegalActions(self.index) if action != 'Stop']):
+      if len([action for action in gameState.getLegalActions(self.index) if action != 'Stop']) <= 1:
         if (closestEnemy[0] == myPos[0] and (closestEnemy[1] == myPos[1] + 1 or closestEnemy[1] == myPos[1] - 1)) or (closestEnemy[1] == myPos[1] and (closestEnemy[0] == myPos[0] + 1 or closestEnemy[0] == myPos[0] - 1)):
-          print("Trapped!")
           return True
     return False;
+
 
 
 class DefensiveReflexAgent(ReflexAgent):
