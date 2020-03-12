@@ -4,7 +4,7 @@
 # educational purposes provided that (1) you do not distribute or publish
 # solutions, (2) you retain this notice, and (3) you provide clear
 # attribution to UC Berkeley, including a link to http://ai.berkeley.edu.
-# 
+#
 # Attribution Information: The Pacman AI projects were developed at UC Berkeley.
 # The core projects and autograders were primarily created by John DeNero
 # (denero@cs.berkeley.edu) and Dan Klein (klein@cs.berkeley.edu).
@@ -30,7 +30,6 @@ def createTeam(firstIndex, secondIndex, isRed,
   team, initialized using firstIndex and secondIndex as their agent
   index numbers.  isRed is True if the red team is being created, and
   will be False if the blue team is being created.
-
   As a potentially helpful development aid, this function can take
   additional string-valued keyword arguments ("first" and "second" are
   such arguments in the case of this function), which will come from
@@ -59,11 +58,9 @@ class ReflexAgent(CaptureAgent):
     This method handles the initial setup of the
     agent to populate useful fields (such as what team
     we're on).
-
     A distanceCalculator instance caches the maze distances
     between each pair of positions, so your agents can use:
     self.distancer.getDistance(p1, p2)
-
     IMPORTANT: This method may run for at most 15 seconds.
     """
 
@@ -78,6 +75,8 @@ class ReflexAgent(CaptureAgent):
     self.numFood = len(self.getFood(gameState).asList()) # the amount of food that has not been returned
     self.hasFood = False
     self.offensiveIndex = self.getTeam(gameState)[0] # agent index of the offensive agent
+
+    self.depth = 2
     '''
     Your initialization code goes here, if you need any.
     '''
@@ -99,14 +98,14 @@ class ReflexAgent(CaptureAgent):
 
     # You can profile your evaluation time by uncommenting these lines
     # start = time.time()
-    values = [self.getValue(gameState, a, self.index, 2) for a in actions]
+    values = [self.getValue(gameState, a, self.index, self.depth) for a in actions]
     # print 'eval time for agent %d: %.4f' % (self.index, time.time() - start)
 
     maxValue = max(values)
     bestActions = [a for a, v in zip(actions, values) if v == maxValue]
 
-     # if self.index == 1:
-    #   print(maxValue)
+    # if self.index == 1:
+    #   print(self.hasFood)
 
     foodLeft = len(self.getFood(gameState).asList())
 
@@ -166,24 +165,6 @@ class ReflexAgent(CaptureAgent):
     else:
       return min(values)
 
-  # see if there is only one path to go down
-  def getPath(self, gameState, action, length):
-    newActions = [a for a in gameState.getLegalActions if a != 'Stop' and a != self.invertAction(action)]
-    if len(newActions) <= 1:
-      length += 1
-
-  def invertAction(action):
-    if action == 'North':
-      return 'South'
-    elif action == 'South':
-      return 'North'
-    elif action == 'East':
-      return 'West'
-    elif action == 'West':
-      return 'East'
-    else:
-      return 'Stop'
-
   def getSuccessor(self, gameState, action):
     """
     Finds the next successor which is a grid position (location tuple).
@@ -223,6 +204,32 @@ class ReflexAgent(CaptureAgent):
     """
     return {'successorScore': 1.0}
 
+  # determine the length of a path that traps you
+  def onePath(self, gameState, previousAction, length):
+    actions = [a for a in gameState.getLegalActions(self.index) if a != 'Stop' and a != self.invertAction(previousAction)]
+    length += 1
+    # if there's no new actions, we have reached the end of our path so return the length
+    if len(actions) == 0:
+      return length
+    # if there is only one new action, increment the length of the path and see if the new gameState is also one path
+    elif len(actions) == 1:
+      return self.onePath(self.getSuccessor(gameState, actions[0]), actions[0], length)
+    # if there are more than two actions, this path has an exit and does not trap us
+    else:
+      return 0
+
+  def invertAction(self, action):
+    if action == 'North':
+      return 'South'
+    elif action == 'South':
+      return 'North'
+    elif action == 'East':
+      return 'West'
+    elif action == 'West':
+      return 'East'
+    else:
+      return 'Stop'
+
 
 class OffensiveReflexAgent(ReflexAgent):
   """
@@ -249,6 +256,9 @@ class OffensiveReflexAgent(ReflexAgent):
       minDistance = min([self.getMazeDistance(myPos, food) for food in foodList])
       features['distanceToFood'] = minDistance
 
+    # try to avoid actions that limit your action to one action
+    pathLength = self.onePath(successor, action, 0)
+
     # Compute proximity to nearest ghost if you're a pacman and are trying to eat food
     enemies = [successor.getAgentState(i) for i in self.getOpponents(successor)]
     nearestGhosts = [self.getMazeDistance(myPos, a.getPosition()) for a in enemies if a.isPacman == False and a.getPosition() != False]
@@ -263,9 +273,18 @@ class OffensiveReflexAgent(ReflexAgent):
       # ignore the ghost if you can get to home faster than a ghost can get to you
       if distanceToHome < nearestGhost:
         features['nearestGhost'] = 0
+      # deal with only having one path
+      if successor.getAgentState(self.index).isPacman == True:
+        if nearestGhost < 2*pathLength:
+          features['singlePath'] = 3*pathLength
+        else:
+          features['singlePath'] = pathLength
+      else:
+        features['singlePath'] = 0
     else:
         features['nearestGhost'] = 0
         features['distanceToFood'] *= 2 # focus more on food if there are no ghosts
+        features['singlePath'] = 0
 
 
     capsules = self.getCapsules(gameState)
@@ -278,20 +297,22 @@ class OffensiveReflexAgent(ReflexAgent):
     return features
 
   def getWeights(self, gameState, action):
-    weights = {'successorScore': 50, 'distanceToFood': -1, 'nearestGhost': -5}
+    weights = {'successorScore': 50, 'distanceToFood': -1, 'nearestGhost': -5, 'singlePath': -2}
     # determine the weight of a capsule based on if any are left
     if len(self.getCapsules(gameState)) != 0:
       weights['nearestCapsule'] = -1
     else:
       weights['nearestCapsule'] = 0
+
     # Weight the distance to a ghost more heavily if you are pacman (if they can eat you)
     if (gameState.getAgentState(self.index).isPacman == True):
       weights['nearestGhost'] = -10
+
     # if you have food, focus on going home and avoiding ghosts
     if (self.hasFood):
-      numFood = self.numFood = len(self.getFood(gameState).asList())
-      weights['distanceToHome'] = -2*numFood
-      weights['nearestGhost'] -= 50
+      foodEaten = self.numFood - len(self.getFood(gameState).asList())
+      weights['distanceToHome'] = -2*foodEaten
+      weights['nearestGhost'] -= 30
     else:
       weights['distanceToHome'] = 0
 
@@ -339,9 +360,9 @@ class OffensiveReflexAgent(ReflexAgent):
     if self.isTrapped(gameState) and willBeTrapped == False:
       reward += 2
 
-    # try to avoid actions that limit your action to one action
-    if len([action for action in successorState.getLegalActions(self.index) if action != 'Stop']) <= 1:
-      reward -= 2
+    # oppose just stopping while on the other side
+    if action == 'Stop' and gameState.getAgentState(self.index).isPacman:
+        reward -= 1
 
     reward *= 50
 
@@ -440,5 +461,3 @@ class DefensiveReflexAgent(ReflexAgent):
         if (enemyPosition[0] == myPos[0] and (enemyPosition[1] == myPos[1] + 1 or enemyPosition[1] == myPos[1] - 1)) or (enemyPosition[1] == myPos[1] and (enemyPosition[0] == myPos[0] + 1 or enemyPosition[0] == myPos[0] - 1)):
           return True
     return False;
-
-
